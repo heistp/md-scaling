@@ -585,7 +585,7 @@ drives the steady-state queueing delay down to ~1 ms.
 ---
 
 ![CUBIC-MDS at 100 Mbps, 600 ms path RTT, delay spikes of ~10 ms](results/f8b-cubic-mds-high-rtt.png)
-*Figure 8b: CUBIC-MDS at 100 Mbps, 600 ms path RTT*
+*Figure 8b: CUBIC-MDS at 1000 Mbps, 600 ms path RTT*
 
 ---
 
