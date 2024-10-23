@@ -322,6 +322,8 @@ Several aspects of this simulation are different from what's typical in reality:
 * cwnd is in bytes, not segments.
 * There is no simulation of offloads, so the AQM sees 1500 byte packets instead
   of the usual aggregates.
+* There's a single queue for interface and device, and no concept of a socket
+  buffer.
 
 <sup>7</sup> This was done to simplify development and testing.
 [State-change ACKs](#receiver-feedback) were not fully implemented at the time
