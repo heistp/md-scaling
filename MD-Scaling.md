@@ -1057,24 +1057,34 @@ Below is a comparison between Multiplicative Decrease Scaling (MDS) and the L4S
 experiment described in [RFC9330](https://datatracker.ietf.org/doc/rfc9330/):
 
 * MDS allows conventional TCP traffic and MDS traffic to coexist in the same
-  queue. This is impossible with L4S, because congestion controllers using the
+  queue. This doesn't work with L4S, because the signaling and response is
+  qualitatively different from that of TCP.  Congestion controllers using the
   [DCTCP](https://datatracker.ietf.org/doc/html/rfc8257)-style response that L4S
-  suggests "must not be deployed over the public Internet without additional
-  measures", per the DCTCP RFC. It also means that middleboxes are free to
-  employ any number of queues at the bottleneck, and to assign any flow to any
-  queue, as long as the AQM adheres to the
-  [MDS signaling relationship](mds-signaling-relationship).
+  supports "must not be deployed over the public Internet without additional
+  measures", per the DCTCP RFC.
+* With MDS, middleboxes are free to employ any number of queues at the
+  bottleneck, and to assign any flow to any queue, as long as the AQM adheres to
+  the
+  [MDS signaling relationship](mds-signaling-relationship). This creates the
+  possibility of placing all capacity seeking traffic (conventional and MDS) in
+  one queue, and placing *only* sparse flows in a low-latency queue.  This
+  low-latency queue may have even lower delay than the L4S L queue, because it's
+  not subject to either queue spikes at the end of slow-start, or to the "train
+  wreck effect" that capacity seeking flows can cause in bottlenecks on rate
+  drops.  In contrast to this flexibility with MDS, L4S requires a minimum of
+  two queues, to separate L4S from conventional TCP traffic, and capacity
+  seeking L4S flows must share the same queue as sparse flows.
 * MDS uses a [DS codepoint](https://www.rfc-editor.org/rfc/rfc2474.html) for its
   traffic identifier, while L4S uses ECT(1). While MDS will initially work
-  over fewer Internet paths due to DSCP bleaching, it means that MDS traffic is
-  completely safe for existing conventional traffic, whereas L4S flows can be
+  over fewer Internet paths then L4S due to DSCP bleaching, it means that MDS
+  traffic is completely safe for existing conventional traffic, whereas L4S
+  flows can be
   [unsafe to conventional flows in shared RFC3168 queues](https://github.com/heistp/l4s-tests/?tab=readme-ov-file#unsafety-in-shared-rfc3168-queues).
-* Since L4S uses ECT(1) as its traffic identifier, L4S flows can also induce
+* Since L4S uses ECT(1) as its traffic identifier, L4S flows can induce
   [latency spikes](https://github.com/heistp/l4s-tests/?tab=readme-ov-file#intra-flow-latency-spikes-from-underreaction-to-rfc3168-ce)
-  on themselves in existing RFC3168 signaling AQMs, as those AQMs also consider
-  ECT(1) to mean RFC3168 capable traffic, but signal at a much lower frequency
-  than L4S flows expect. Since MDS uses DSCP as an identifier and responds to CE
-  the same way as conventional flows, it does not have this problem.
+  *on themselves* in existing RFC3168 signaling AQMs.  Since MDS uses DSCP as an
+  identifier and responds to CE the same way as conventional flows, it does not
+  have this problem.
 * Since L4S overloads the CE codepoint, the L4S traffic identifier is lost when
   a flow is signaled with CE. This can create unanticipated problems like
   the
@@ -1083,15 +1093,14 @@ experiment described in [RFC9330](https://datatracker.ietf.org/doc/rfc9330/):
   marked, it does not have this problem.
 * L4S congestion controllers such as
   [TCP Prague](https://datatracker.ietf.org/doc/draft-briscoe-iccrg-prague-congestion-control/) use the same general response function as DCTCP, and are thus
-  deemed "scalable".  However neither Prague nor DCTCP uses a scalable growth
-  function (they use Reno-linear growth, which we show in this document to
-  [not be scalable](#scalability)). The [Scalable-MDS](#scalable-mds-cca) CCA
-  demonstrated in this document does use a scalable growth function (as the
-  congestion signal recovery time is independent of the rate), and the
-  resulting
-  [rate-independent signaling frequency](#scalable-mds-steady-state-signaling-frequency)
-  that Scalable-MDS induces in the AQM also meets the definition of a Scalable
-  Congestion Control outlined in
+  deemed "scalable".  However neither DCTCP nor Prague uses a scalable growth
+  function.  They use Reno-linear growth, which we show in this document to
+  [not be scalable](#scalability)).  The [Scalable-MDS](#scalable-mds-cca) CCA
+  demonstrated in this document *does* use a scalable growth function.  The
+  recovery time after a congestion signal is independent of the rate, and the
+  resulting signaling frequency of the AQM at steady-state is
+  [independent of the rate](#scalable-mds-steady-state-signaling-frequency),
+  which also meets the definition of a Scalable Congestion Control described in
   [RFC9330](https://datatracker.ietf.org/doc/rfc9330/), section 3.
 * The discussion around MDS may evoke a classic comparison between the relative
   merits of the TCP and DCTCP responses.  With TCP, the AQM uses its precise
