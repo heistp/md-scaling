@@ -6,7 +6,7 @@ Copyright 2024 Pete Heist
 # Multiplicative Decrease Scaling
 <p align="right">
 Pete Heist<br/>
-October 18, 2024
+October 18, 2024 - April 16, 2025
 </p>
 
 ## Abstract
@@ -17,7 +17,10 @@ conventional congestion control algorithms (CCAs) in a single queue.  Using a
 signaling and response [relationship](#mds-signaling-relationship) that allows
 cwnd convergence with conventional CCAs, MDS aims to reduce queueing delay, and
 increase utilization for MDS CCAs, while supporting the transition to scalable
-CCAs.
+CCAs.  MDS's compatibility with conventional TCP traffic allows flexibility in
+middlebox deployments, from simple, single-queue or policer designs, to
+dual-queue with a low-latency queue, to full Fair Queueing, where there is no
+danger of flow domination even on flow hash collisions.
 
 This document explores MDS as a step towards an Internet Draft.  First, we
 present some background and motivation for the work.  Next, we outline the
@@ -50,21 +53,25 @@ traffic must a placed in a separate queue, as is the case for the L4S
 [Dual-Queue Coupled AQM](https://datatracker.ietf.org/doc/rfc9332/).
 
 Single-queue AQMs are less complex and costly to deploy than their multi-queue
-counterparts.  So, we seek a design for high-fidelity ECN, using single-queue
-AQMs and supporting CCAs, that remains compatible with conventional CCAs so it
-can be deployed safely on the Internet.
+counterparts.  Furthermore, compatibility with conventional TCP traffic in a
+single queue has value beyond just single-queue AQMs.  Dual-queue designs are
+free to either separate MDS from conventional traffic, or to place *only* sparse
+flows in a low-latency queue, which would protect them from the "train wreck
+effect" on rate drops.  So, we seek a design for high-fidelity ECN, using
+single-queue AQMs and supporting CCAs, that remains compatible with conventional
+CCAs so it can be deployed safely on the Internet.
 
-Because all traffic shares one queue, conventional CCAs will both impact the
-queueing delay of, and have their utilization impacted by early-marking AQMs.
-We hypothesize that there exists a level of queueing delay that is "good enough"
-both for delay-sensitive applications, and conventional flow utilization, making
-single-queue high-fidelity ECN marking sensible to deploy<sup>2</sup>.  We note
-that:
+When traffic shares one queue, conventional CCAs will both impact the queueing
+delay of, and have their utilization impacted by early-marking AQMs.  For
+single-queue AQMs, we hypothesize that there exists a level of queueing delay
+that is "good enough" both for delay-sensitive applications, and conventional
+flow utilization, making single-queue high-fidelity ECN marking sensible to
+deploy<sup>2</sup>.  We note that:
 
 * A single Reno flow that receives CE marks or drops as soon as congestion
-  starts will at worst get 75% of full utilization.  A single CUBIC flow, with
-  its growth function and standard *β<sub>CUBIC</sub>* of 0.7, will typically
-  get higher utilization than that.
+  starts will at worst get 75% of full utilization, over time.  A single CUBIC
+  flow, with its growth function and standard *β<sub>CUBIC</sub>* of 0.7, will
+  typically get higher utilization than that.
 * As the number of flows increases, so does the utilization.
 * In many environments, traffic arrives at queues in bursts that are difficult
   if not impossible to control.  802.11ac/ax aggregates can be up to 5.5 ms in
@@ -78,9 +85,11 @@ that:
   * Conventional CCAs will need to be replaced with scalable CCAs.  This is
     well known for Reno, but there is also a
     [scalability limit for CUBIC](#cubics-scalability-limit)).  CCAs with
-    scalable cwnd growth functions tend to prefer shorter queues, both for
-    stability, and for reasonable fairness with conventional CCAs.  MDS AQMs
-    support this by aiming to keep queueing delay within some allowable burst.
+    scalable cwnd growth functions, like
+    [Scalable TCP](https://en.wikipedia.org/wiki/Scalable_TCP), tend to prefer
+    shorter queues, both for stability, and for reasonable fairness with
+    conventional CCAs.  MDS AQMs support this by aiming to keep queueing delay
+    within some allowable burst.
 
 <sup>1</sup> The
 [TCP Alternative Backoff with ECN (ABE)](https://datatracker.ietf.org/doc/rfc8511/)
@@ -250,7 +259,8 @@ requires further study.
 ### Active Queue Management (AQM) Guidelines
 
 MDS AQMs must adhere to the
-[MDS signaling relationship](#mds-signaling-relationship).
+[MDS signaling relationship](#mds-signaling-relationship).  This is the only
+hard requirement.
 
 MDS AQMs should:
 
@@ -261,7 +271,8 @@ MDS AQMs should:
 At sufficiently low packet rates, low RTTs, high loads, or high τ, it's not
 possible to control the queue even if every packet is marked SCE.  In such
 cases, MDS packets may be dropped or marked CE instead, preferably while
-maintaining the MDS signaling relationship.
+maintaining the MDS signaling relationship.  The
+[DelTiM AQM](deltim-aqm-a-deltic-variant) shows this to be possible.
 
 ### Congestion Control Algorithm (CCA) Guidelines
 
@@ -326,8 +337,8 @@ Several aspects of this simulation are different from what's typical in reality:
   buffer.
 
 <sup>7</sup> This was done to simplify development and testing.
-[State-change ACKs](#receiver-feedback) were not fully implemented at the time
-of this writeup.
+[State-change ACKs](#receiver-feedback) were not implemented at the time of this
+writeup.
 
 #### Test Configuration
 
@@ -947,7 +958,7 @@ We place no hard requirement on MDS CCA fairness with conventional CCAs.
 Steady-state fairness is less of a concern for real world Internet traffic than
 we might imagine, as most flows are short enough so as not to be dramatically
 affected by fairness imbalances.  However, we will still give fairness some
-consideration.  
+consideration.
 
 To put a stake in the ground, we'll consider a two-flow steady-state fairness
 ratio of worse than 90/10 at the same RTT to be "questionable".  However, we
@@ -1006,6 +1017,10 @@ although the general trend remains the same.
 
 *Figure 17: Max "acceptable" RTT vs bandwidth*
 
+Figure 17 informs the interpretation of the results shown in
+[Fairness Between Scalable-MDS and Conventional Flows With DelTiM](#fairness-between-scalable-mds-and-conventional-flows-with-deltim) and
+[Fairness Between Reno, CUBIC and Scalable in FIFO Queues](#fairness-between-reno-cubic-and-scalable-in-fifo-queues).
+
 ### Scalability
 
 The term scalability usually refers to the general ability for a CCA to work
@@ -1036,20 +1051,60 @@ recover from large drops in cwnd, e.g. after rate drops and flow arrivals.  A
 capacity seeking CCA will become increasingly ineffective as bandwidth
 increases, if the recovery time increases continually with bandwidth.
 
-### Conventional TCP vs DCTCP Response
+### Multiplicative Decrease Scaling vs L4S
 
-The discussion around MDS may come back to a classic comparison between the
-relative merits of the TCP and DCTCP responses.  With TCP, the AQM uses its
-precise information on the state of the queue to arrive at the correct signaling
-frequency, without knowledge of the flow RTTs.  With DCTCP, congestion signals
-are sent more immediately to the sender, which uses its knowledge of the RTT to
-scale and smooth cwnd.  This writeup does not investigate or take a position on
-which approach is preferred.
+Below is a comparison between Multiplicative Decrease Scaling (MDS) and the L4S
+experiment described in [RFC9330](https://datatracker.ietf.org/doc/rfc9330/):
+
+* MDS allows conventional TCP traffic and MDS traffic to coexist in the same
+  queue. This is impossible with L4S, because congestion controllers using the
+  [DCTCP](https://datatracker.ietf.org/doc/html/rfc8257)-style response that L4S
+  suggests "must not be deployed over the public Internet without additional
+  measures", per the DCTCP RFC. It also means that middleboxes are free to
+  employ any number of queues at the bottleneck, and to assign any flow to any
+  queue, as long as the AQM adheres to the
+  [MDS signaling relationship](mds-signaling-relationship).
+* MDS uses a [DS codepoint](https://www.rfc-editor.org/rfc/rfc2474.html) for its
+  traffic identifier, while L4S uses ECT(1). While MDS will initially work
+  over fewer Internet paths due to DSCP bleaching, it means that MDS traffic is
+  completely safe for existing conventional traffic, whereas L4S flows can be
+  [unsafe to conventional flows in shared RFC3168 queues](https://github.com/heistp/l4s-tests/?tab=readme-ov-file#unsafety-in-shared-rfc3168-queues).
+* Since L4S uses ECT(1) as its traffic identifier, L4S flows can also induce
+  [latency spikes](https://github.com/heistp/l4s-tests/?tab=readme-ov-file#intra-flow-latency-spikes-from-underreaction-to-rfc3168-ce)
+  on themselves in existing RFC3168 signaling AQMs, as those AQMs also consider
+  ECT(1) to mean RFC3168 capable traffic, but signal at a much lower frequency
+  than L4S flows expect. Since MDS uses DSCP as an identifier and responds to CE
+  the same way as conventional flows, it does not have this problem.
+* Since L4S overloads the CE codepoint, the L4S traffic identifier is lost when
+  a flow is signaled with CE. This can create unanticipated problems like
+  the
+  [L4S & VPN anti-replay interaction](https://mailarchive.ietf.org/arch/msg/tsvwg/PEVCuDJfbrel74ud8kNJtmVwhHA/).
+  Since MDS uses DSCP as its identifier and does not lose its identifier when
+  marked, it does not have this problem.
+* L4S congestion controllers such as
+  [TCP Prague](https://datatracker.ietf.org/doc/draft-briscoe-iccrg-prague-congestion-control/) use the same general response function as DCTCP, and are thus
+  deemed "scalable".  However neither Prague nor DCTCP uses a scalable growth
+  function (they use Reno-linear growth, which we show in this document to
+  [not be scalable](#scalability)). The [Scalable-MDS](#scalable-mds-cca) CCA
+  demonstrated in this document does use a scalable growth function (as the
+  congestion signal recovery time is independent of the rate), and the
+  resulting
+  [rate-independent signaling frequency](#scalable-mds-steady-state-signaling-frequency)
+  that Scalable-MDS induces in the AQM also meets the definition of a Scalable
+  Congestion Control outlined in
+  [RFC9330](https://datatracker.ietf.org/doc/rfc9330/), section 3.
+* The discussion around MDS may evoke a classic comparison between the relative
+  merits of the TCP and DCTCP responses.  With TCP, the AQM uses its precise
+  information on the state of the queue to arrive at the correct signaling
+  frequency, without knowledge of the flow RTTs.  With DCTCP, congestion signals
+  are sent more immediately to the sender, which uses its knowledge of the RTT
+  to scale and smooth cwnd.  This writeup does not investigate or take a
+  position on which approach is preferred.
 
 ## Future Work
 
-* Implement in NS-2/3 and the Linux kernel
 * Write an I-D
+* Implement in NS-2/3 and the Linux kernel
 * Improve dynamics after slow-start exit
 * Choose Scalable lwnd more rigorously
 * Choose τ more rigorously
